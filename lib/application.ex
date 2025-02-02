@@ -22,7 +22,7 @@ defmodule ShaderLlm.Application do
     case conn.body_params do
       %{"prompt" => "test shader"} ->
         Logger.info("Returning test shader")
-        send_json(conn, 200, %{shader: get_test_shader()})
+        send_json(conn, 200, %{shader_code: get_test_shader()})
 
       %{"prompt" => prompt} ->
         case System.get_env("LLM_API_KEY") do
@@ -51,12 +51,29 @@ defmodule ShaderLlm.Application do
   end
 
   defp handle_llm_request(conn, prompt, api_key) do
+    system_prompt = """
+    Generate WebGL shader code with both vertex and fragment shaders.
+    Format must be exactly:
+
+    // Vertex Shader
+    attribute vec4 a_position;
+    void main() {
+      gl_Position = a_position;
+    }
+
+    // Fragment Shader
+    precision mediump float;
+    void main() {
+      // Your fragment shader logic here
+    }
+    """
+
     case HTTPoison.post(
       "https://api.openai.com/v1/chat/completions",
       Jason.encode!(%{
         model: "gpt-4",
         messages: [
-          %{role: "system", content: "Generate only valid GLSL shader code. Include version and precision."},
+          %{role: "system", content: system_prompt},
           %{role: "user", content: prompt}
         ]
       }),
@@ -68,7 +85,7 @@ defmodule ShaderLlm.Application do
       {:ok, %{status_code: 200, body: body}} ->
         case Jason.decode(body) do
           {:ok, %{"choices" => [%{"message" => %{"content" => content}} | _]}} ->
-            send_json(conn, 200, %{shader: content})
+            send_json(conn, 200, %{shader_code: content})
           _ ->
             send_json(conn, 500, %{error: "Invalid LLM response"})
         end
@@ -79,12 +96,17 @@ defmodule ShaderLlm.Application do
 
   defp get_test_shader do
     """
-    #version 300 es
-    precision mediump float;
-    out vec4 fragColor;
+    // Vertex Shader
+    attribute vec4 a_position;
     void main() {
-      vec2 uv = gl_FragCoord.xy/vec2(800, 600);
-      fragColor = vec4(uv.x, uv.y, 0.5, 1.0);
+      gl_Position = a_position;
+    }
+
+    // Fragment Shader
+    precision mediump float;
+    void main() {
+      vec2 uv = gl_FragCoord.xy/vec2(500.0);
+      gl_FragColor = vec4(uv.x, uv.y, 0.5, 1.0);
     }
     """
   end
