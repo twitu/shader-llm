@@ -10,14 +10,18 @@ defmodule ShaderLlm.MixProject do
   end
 
   def application do
-    [mod: {ShaderLlm.Application, []}]
+    [
+      mod: {ShaderLlm.Application, []},
+      extra_applications: [:logger, :cors_plug]
+    ]
   end
 
   defp deps do
     [
       {:plug_cowboy, "~> 2.6"},
       {:jason, "~> 1.4"},
-      {:httpoison, "~> 2.0"}
+      {:httpoison, "~> 2.0"},
+      {:cors_plug, "~> 3.0"}
     ]
   end
 end

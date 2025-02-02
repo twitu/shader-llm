@@ -1,30 +1,42 @@
 defmodule ShaderLlm.Application do
   use Application
   use Plug.Router
+  require Logger
 
   plug :match
+  plug Plug.Logger
+  plug CORSPlug, origin: ["http://localhost:3000", "http://localhost:5173"]
   plug Plug.Parsers, parsers: [:json], pass: ["application/json"], json_decoder: Jason
   plug :dispatch
 
   def start(_type, _args) do
+    Logger.info("Starting ShaderLLM server on port 4000...")
     children = [
       {Plug.Cowboy, scheme: :http, plug: __MODULE__, options: [port: 4000]}
     ]
     Supervisor.start_link(children, strategy: :one_for_one)
   end
 
-  post "/generate-shader" do
+  post "/api/generate_shader" do
+    Logger.info("Received shader generation request: #{inspect(conn.body_params)}")
     case conn.body_params do
       %{"prompt" => "test shader"} ->
+        Logger.info("Returning test shader")
         send_json(conn, 200, %{shader: get_test_shader()})
 
       %{"prompt" => prompt} ->
         case System.get_env("LLM_API_KEY") do
-          nil -> send_json(conn, 500, %{error: "API key not configured"})
-          key -> handle_llm_request(conn, prompt, key)
+          nil ->
+            Logger.error("LLM API key not configured")
+            send_json(conn, 500, %{error: "API key not configured"})
+          key ->
+            Logger.info("Forwarding request to LLM")
+            handle_llm_request(conn, prompt, key)
         end
 
-      _ -> send_json(conn, 400, %{error: "Missing prompt"})
+      _ ->
+        Logger.warn("Missing prompt in request")
+        send_json(conn, 400, %{error: "Missing prompt"})
     end
   end
 
