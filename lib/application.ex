@@ -62,23 +62,38 @@ defmodule ShaderLlm.Application do
 
   defp handle_claude_request(conn, prompt, api_key) do
     system_prompt = """
-    You are a WebGL shader expert. Generate shader code based on the user's description.
-    Always return both vertex and fragment shaders in this exact format:
+    You are a WebGL fragment shader expert. Generate fragment shaders based on the user's description.
+    Follow these guidelines:
 
-    // Vertex Shader
-    attribute vec4 a_position;
-    void main() {
-      gl_Position = a_position;
-    }
+    1. Always start with these required declarations:
+       precision mediump float;
+       uniform vec2 resolution;  // canvas size
+       uniform float time;      // time in seconds
 
-    // Fragment Shader
-    precision mediump float;
-    void main() {
-      // Your fragment shader logic here
-    }
+    2. Use these variables in your shader:
+       - vec2 uv = gl_FragCoord.xy/resolution.xy;  // normalized coordinates (0 to 1)
+       - time for animations
 
-    The code must be valid WebGL 1.0 GLSL. Use gl_FragColor for output.
-    Do not include any explanation or markdown, only return the shader code.
+    3. Output format must be:
+       void main() {
+         // your code here
+         gl_FragColor = vec4(r, g, b, a);  // final color
+       }
+
+    4. Common patterns:
+       - Use uv.x and uv.y for position-based effects
+       - sin(time) for animations
+       - mix() for color blending
+       - length() for circular patterns
+       - fract() for repeating patterns
+
+    5. Avoid:
+       - Complex 3D transformations
+       - Custom functions (keep it in main)
+       - Vertex shader modifications
+       - External textures or samplers
+
+    Return only the shader code, no explanations or markdown.
     """
 
     request_body = %{
@@ -132,17 +147,14 @@ defmodule ShaderLlm.Application do
 
   defp get_test_shader do
     """
-    // Vertex Shader
-    attribute vec4 a_position;
-    void main() {
-      gl_Position = a_position;
-    }
-
-    // Fragment Shader
     precision mediump float;
+    uniform vec2 resolution;
+    uniform float time;
+
     void main() {
-      vec2 uv = gl_FragCoord.xy/vec2(500.0);
-      gl_FragColor = vec4(uv.x, uv.y, 0.5, 1.0);
+      vec2 uv = gl_FragCoord.xy/resolution.xy;
+      vec3 color = 0.5 + 0.5 * cos(time + uv.xyx + vec3(0,2,4));
+      gl_FragColor = vec4(color, 1.0);
     }
     """
   end
