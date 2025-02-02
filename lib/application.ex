@@ -5,14 +5,24 @@ defmodule ShaderLlm.Application do
 
   plug :match
   plug Plug.Logger
-  plug CORSPlug, origin: ["http://localhost:3000", "http://localhost:5173"]
+  # Support both local and production frontend URLs
+  plug CORSPlug, origin: [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "https://shader-llm.fly.dev"
+  ]
   plug Plug.Parsers, parsers: [:json], pass: ["application/json"], json_decoder: Jason
   plug :dispatch
 
+  @claude_api_url "https://api.anthropic.com/v1/messages"
+
   def start(_type, _args) do
-    Logger.info("Starting ShaderLLM server on port 4000...")
+    # Use PORT env var in production, default to 4000 for local dev
+    port = String.to_integer(System.get_env("PORT") || "4000")
+    Logger.info("Starting ShaderLLM server on port #{port}...")
+
     children = [
-      {Plug.Cowboy, scheme: :http, plug: __MODULE__, options: [port: 4000]}
+      {Plug.Cowboy, scheme: :http, plug: __MODULE__, options: [port: port]}
     ]
     Supervisor.start_link(children, strategy: :one_for_one)
   end
@@ -25,13 +35,13 @@ defmodule ShaderLlm.Application do
         send_json(conn, 200, %{shader_code: get_test_shader()})
 
       %{"prompt" => prompt} ->
-        case System.get_env("LLM_API_KEY") do
+        case System.get_env("CLAUDE_API_KEY") do
           nil ->
-            Logger.error("LLM API key not configured")
-            send_json(conn, 500, %{error: "API key not configured"})
-          key ->
-            Logger.info("Forwarding request to LLM")
-            handle_llm_request(conn, prompt, key)
+            Logger.error("Claude API key not configured")
+            send_json(conn, 500, %{error: "API key not configured. Set CLAUDE_API_KEY environment variable."})
+          api_key ->
+            Logger.info("Forwarding request to Claude")
+            handle_claude_request(conn, prompt, api_key)
         end
 
       _ ->
@@ -50,10 +60,10 @@ defmodule ShaderLlm.Application do
     |> send_resp(status, Jason.encode!(data))
   end
 
-  defp handle_llm_request(conn, prompt, api_key) do
+  defp handle_claude_request(conn, prompt, api_key) do
     system_prompt = """
-    Generate WebGL shader code with both vertex and fragment shaders.
-    Format must be exactly:
+    You are a WebGL shader expert. Generate shader code based on the user's description.
+    Always return both vertex and fragment shaders in this exact format:
 
     // Vertex Shader
     attribute vec4 a_position;
@@ -66,31 +76,57 @@ defmodule ShaderLlm.Application do
     void main() {
       // Your fragment shader logic here
     }
+
+    The code must be valid WebGL 1.0 GLSL. Use gl_FragColor for output.
+    Do not include any explanation or markdown, only return the shader code.
     """
 
-    case HTTPoison.post(
-      "https://api.openai.com/v1/chat/completions",
-      Jason.encode!(%{
-        model: "gpt-4",
-        messages: [
-          %{role: "system", content: system_prompt},
-          %{role: "user", content: prompt}
-        ]
-      }),
-      [
-        {"Authorization", "Bearer #{api_key}"},
-        {"Content-Type", "application/json"}
+    request_body = %{
+      model: "claude-3-opus-20240229",
+      max_tokens: 1000,
+      system: system_prompt,
+      messages: [
+        %{
+          role: "user",
+          content: prompt
+        }
       ]
-    ) do
+    }
+
+    headers = [
+      {"x-api-key", api_key},
+      {"anthropic-version", "2023-06-01"},
+      {"content-type", "application/json"}
+    ]
+
+    # Add timeout options (30 seconds)
+    options = [
+      timeout: 30_000,
+      recv_timeout: 30_000
+    ]
+
+    case HTTPoison.post(@claude_api_url, Jason.encode!(request_body), headers, options) do
       {:ok, %{status_code: 200, body: body}} ->
         case Jason.decode(body) do
-          {:ok, %{"choices" => [%{"message" => %{"content" => content}} | _]}} ->
-            send_json(conn, 200, %{shader_code: content})
+          {:ok, %{"content" => [%{"text" => shader_code} | _]}} ->
+            # Clean up any potential markdown code blocks
+            clean_code = shader_code
+              |> String.replace("```glsl", "")
+              |> String.replace("```", "")
+              |> String.trim()
+            send_json(conn, 200, %{shader_code: clean_code})
           _ ->
-            send_json(conn, 500, %{error: "Invalid LLM response"})
+            Logger.error("Invalid Claude response format: #{inspect(body)}")
+            send_json(conn, 500, %{error: "Invalid response from Claude"})
         end
-      _ ->
-        send_json(conn, 500, %{error: "LLM request failed"})
+
+      {:ok, %{status_code: status_code, body: body}} ->
+        Logger.error("Claude API error: #{status_code} - #{inspect(body)}")
+        send_json(conn, 500, %{error: "Claude API error: #{status_code}"})
+
+      {:error, %HTTPoison.Error{reason: reason}} ->
+        Logger.error("Claude API request failed: #{inspect(reason)}")
+        send_json(conn, 500, %{error: "Failed to connect to Claude API"})
     end
   end
 
