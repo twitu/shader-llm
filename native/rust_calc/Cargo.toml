@@ -1,0 +1,12 @@
+[package]
+name = "rust_calc"
+version = "0.1.0"
+edition = "2018"
+
+[lib]
+name = "rust_calc"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+rustler = "0.36.1" 

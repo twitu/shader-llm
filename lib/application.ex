@@ -50,6 +50,22 @@ defmodule ShaderLlm.Application do
     end
   end
 
+  post "/api/calculate" do
+    Logger.info("Received calculate request: #{inspect(conn.body_params)}")
+    case conn.body_params do
+      %{"input" => input} ->
+        case ShaderLlm.RustCalc.calculate(input) do
+          {:ok, result} ->
+            send_json(conn, 200, %{result: result})
+          {:error, error} ->
+            send_json(conn, 200, %{result: error})
+        end
+      _ ->
+        Logger.warn("Missing input in request")
+        send_json(conn, 400, %{error: "Missing input"})
+    end
+  end
+
   match _ do
     send_resp(conn, 404, "Not found")
   end
