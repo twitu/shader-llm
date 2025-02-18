@@ -22,7 +22,7 @@ defmodule ShaderLlm.MixProject do
     [
       {:plug_cowboy, "~> 2.6"},
       {:jason, "~> 1.4"},
-      {:httpoison, "~> 2.0"},
+      {:req, "~> 0.3"},
       {:cors_plug, "~> 3.0"}
     ]
   end

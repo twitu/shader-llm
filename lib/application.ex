@@ -93,18 +93,21 @@ defmodule ShaderLlm.Application do
        - Vertex shader modifications
        - External textures or samplers
 
+    6. Loop restrictions:
+       - Loop counters must be compared only with constant expressions
+       - All loops must have a fixed iteration count
+       - No dynamic/variable loop bounds
+       - Prefer unrolled calculations over loops when possible
+
     Return only the shader code, no explanations or markdown.
     """
 
     request_body = %{
-      model: "claude-3-opus-20240229",
+      model: "claude-3-5-sonnet-20241022",
       max_tokens: 1000,
       system: system_prompt,
       messages: [
-        %{
-          role: "user",
-          content: prompt
-        }
+        %{role: "user", content: prompt}
       ]
     }
 
@@ -114,18 +117,27 @@ defmodule ShaderLlm.Application do
       {"content-type", "application/json"}
     ]
 
-    # Add timeout options (30 seconds)
-    options = [
-      timeout: 30_000,
-      recv_timeout: 30_000
-    ]
+    # Using Req for making the HTTP POST with a 30-second timeout
+    case Req.post(@claude_api_url,
+           json: request_body,
+           headers: headers,
+           receive_timeout: 30_000) do
+      {:ok, %Req.Response{status: 200, body: body}} ->
+        parsed_body =
+          if is_map(body) do
+            body
+          else
+            case Jason.decode(body) do
+              {:ok, result} -> result
+              {:error, _} -> nil
+            end
+          end
 
-    case HTTPoison.post(@claude_api_url, Jason.encode!(request_body), headers, options) do
-      {:ok, %{status_code: 200, body: body}} ->
-        case Jason.decode(body) do
-          {:ok, %{"content" => [%{"text" => shader_code} | _]}} ->
+        case parsed_body do
+          %{"content" => [%{"text" => shader_code} | _]} ->
             # Clean up any potential markdown code blocks
-            clean_code = shader_code
+            clean_code =
+              shader_code
               |> String.replace("```glsl", "")
               |> String.replace("```", "")
               |> String.trim()
@@ -135,12 +147,12 @@ defmodule ShaderLlm.Application do
             send_json(conn, 500, %{error: "Invalid response from Claude"})
         end
 
-      {:ok, %{status_code: status_code, body: body}} ->
-        Logger.error("Claude API error: #{status_code} - #{inspect(body)}")
-        send_json(conn, 500, %{error: "Claude API error: #{status_code}"})
+      {:ok, %Req.Response{status: status, body: body}} ->
+        Logger.error("Claude API error: #{status} - #{inspect(body)}")
+        send_json(conn, 500, %{error: "Claude API error: #{status}"})
 
-      {:error, %HTTPoison.Error{reason: reason}} ->
-        Logger.error("Claude API request failed: #{inspect(reason)}")
+      {:error, error} ->
+        Logger.error("Claude API request failed: #{inspect(error)}")
         send_json(conn, 500, %{error: "Failed to connect to Claude API"})
     end
   end
